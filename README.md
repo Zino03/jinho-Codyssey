@@ -313,9 +313,33 @@ CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT     MEM %     NET I/O    
 
 컨테이너는 PID 1 프로세스가 살아 있는 동안만 실행됩니다. `docker logs ubuntu-bg`가 비어 있는 것은 PID 1(`sleep`)이 출력을 내지 않기 때문입니다.
 
-### 4-7. 커스텀 이미지 / 포트 매핑 / 바인드 마운트 / 볼륨
+### 4-7. 커스텀 이미지 및 포트 매핑
 
-(작성 예정)
+**선택한 방식**: (A) 웹 서버 베이스 이미지 활용. `nginx:alpine`을 베이스로 정적 페이지만 교체했습니다.
+
+**Dockerfile 커스텀 포인트**
+
+| 명령 | 목적 |
+|---|---|
+| `FROM nginx:alpine` | 가볍고 검증된 웹 서버 이미지를 베이스로 사용 |
+| `LABEL` | 이미지 제목/작성자를 메타데이터로 기록 |
+| `ENV APP_ENV=dev` | 실행 환경을 코드와 분리해 환경 변수로 주입 |
+| `COPY site/ ...` | 기본 nginx 페이지를 내 HTML로 교체 |
+| `EXPOSE 80` | 컨테이너가 80번 포트를 사용함을 문서화 |
+| `HEALTHCHECK` | 서버가 실제로 응답하는지 주기적으로 점검 |
+
+(Dockerfile 전체를 코드블록으로 첨부)
+
+**빌드 및 실행**
+
+(docker build 핵심 출력, docker images, docker run 2회, docker ps 붙여넣기)
+
+**포트 매핑 접속 증거**: 같은 이미지를 호스트 포트만 달리해 2회 실행했습니다 (`-p 8080:80`, `-p 8081:80`).
+
+![8080 접속](docs/images/port-8080.png)
+![8081 접속](docs/images/port-8081.png)
+
+**LABEL 반영 확인**: `docker inspect`로 확인했고, 베이스 이미지의 `maintainer` 라벨은 상속되었습니다.
 
 ## 5. 트러블슈팅
 
