@@ -25,10 +25,10 @@
 - [x] Docker 기본 운영 명령 (images, ps, logs, stats)
 - [x] hello-world 실행
 - [x] ubuntu 컨테이너 실행, attach/exec 차이 관찰
-- [ ] Dockerfile 커스텀 이미지 빌드/실행
-- [ ] 포트 매핑 접속
-- [ ] 바인드 마운트 반영
-- [ ] 볼륨 영속성
+- [x] Dockerfile 커스텀 이미지 빌드/실행
+- [x] 포트 매핑 접속
+- [x] 바인드 마운트 반영
+- [x] 볼륨 영속성
 - [x] Git 설정
 - [ ] VSCode GitHub 연동 (스크린샷)
 
@@ -340,6 +340,124 @@ CONTAINER ID   NAME        CPU %     MEM USAGE / LIMIT     MEM %     NET I/O    
 ![8081 접속](docs/images/port-8081.png)
 
 **LABEL 반영 확인**: `docker inspect`로 확인했고, 베이스 이미지의 `maintainer` 라벨은 상속되었습니다.
+
+### 4-8. 바인드 마운트
+
+호스트의 `app/site/` 폴더를 컨테이너의 `/usr/share/nginx/html`에 직접 연결하고, 이미지를 다시 빌드하지 않고 호스트 파일 수정이 반영되는지 확인했습니다.
+
+**변경 전**
+
+```bash
+bjs6047@Jinho:~/codyssey/app$ docker run -d -p 8082:80 --name web-bind -v "$(pwd)/site":/usr/share/nginx/html codyssey-nginx:1.0
+faa7de5219bc3644eab5ac1ec342a7ed05c2bd4f4e541c10b363ec36ebd46e60
+bjs6047@Jinho:~/codyssey/app$ curl http://localhost:8082
+<!DOCTYPE html>
+(중략)
+  <h1>Hello, Codyssey!</h1>
+  <p>Custom nginx image by 변진호</p>
+(이하 생략)
+```
+
+![바인드 마운트 변경 전](docs/images/bind-before.png)
+
+**호스트에서 파일 수정 (컨테이너는 건드리지 않음)**
+
+```bash
+bjs6047@Jinho:~/codyssey/app$ sed -i 's/Hello, Codyssey!/Hello, Bind Mount!/' site/index.html
+bjs6047@Jinho:~/codyssey/app$ cat site/index.html
+<!DOCTYPE html>
+(중략)
+  <h1>Hello, Bind Mount!</h1>
+(이하 생략)
+```
+
+**변경 후 (재시작, 재빌드 없음)**
+
+```bash
+bjs6047@Jinho:~/codyssey/app$ curl http://localhost:8082
+<!DOCTYPE html>
+(중략)
+  <h1>Hello, Bind Mount!</h1>
+  <p>Custom nginx image by 변진호</p>
+(이하 생략)
+```
+
+![바인드 마운트 변경 후](docs/images/bind-after.png)
+
+**마운트 정보 확인**
+
+```bash
+bjs6047@Jinho:~/codyssey/app$ docker inspect web-bind --format '{{json .Mounts}}'
+[{"Type":"bind","Source":"/home/bjs6047/codyssey/app/site","Destination":"/usr/share/nginx/html","Mode":"","RW":true,"Propagation":"rprivate"}]
+```
+
+검증 결과: 컨테이너를 그대로 둔 채 호스트의 `index.html`만 수정했는데 응답이 바로 바뀌었습니다. `Type`이 `bind`이고 `Source`가 호스트 경로로 표시되어, 호스트 폴더가 컨테이너에 직접 연결되었음을 확인했습니다. 확인 후 `index.html`은 원래 내용으로 되돌렸습니다.
+
+### 4-9. Docker 볼륨 영속성
+
+볼륨을 만들어 컨테이너에 연결하고, 컨테이너를 삭제한 뒤에도 데이터가 남는지 확인했습니다.
+
+**볼륨 생성 및 연결, 데이터 기록**
+
+```bash
+bjs6047@Jinho:~/codyssey/app$ docker volume create mydata
+mydata
+bjs6047@Jinho:~/codyssey/app$ docker volume ls
+DRIVER    VOLUME NAME
+local     31da46fef3ebdcbf05436088769aa0cac4a3749cf7038fb64945357223210885
+local     ieobom_mysql-data
+local     mydata
+bjs6047@Jinho:~/codyssey/app$ docker run -d --name vol-test -v mydata:/data ubuntu sleep infinity
+097337f103621617d2ebfbe164822a7a5bf12892d0ee6634e954e0dd85f9a12d
+bjs6047@Jinho:~/codyssey/app$ docker exec vol-test bash -c "echo 'persist me' > /data/hello.txt && cat /data/hello.txt"
+persist me
+```
+
+(`mydata` 외의 볼륨은 이전 프로젝트에서 만든 것입니다.)
+
+**컨테이너 삭제 (삭제 전/후 비교)**
+
+```bash
+bjs6047@Jinho:~/codyssey/app$ docker rm -f vol-test
+vol-test
+bjs6047@Jinho:~/codyssey/app$ docker ps -a --filter name=vol-test
+CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES
+bjs6047@Jinho:~/codyssey/app$ docker volume ls
+DRIVER    VOLUME NAME
+local     31da46fef3ebdcbf05436088769aa0cac4a3749cf7038fb64945357223210885
+local     ieobom_mysql-data
+local     mydata
+```
+
+**새 컨테이너에 같은 볼륨 연결 후 데이터 확인**
+
+```bash
+bjs6047@Jinho:~/codyssey/app$ docker run -d --name vol-test2 -v mydata:/data ubuntu sleep infinity
+f946e781820ae923b6df9ce85e359e4fd73bd23cc202e8d0c70910a76b585d42
+bjs6047@Jinho:~/codyssey/app$ docker exec vol-test2 cat /data/hello.txt
+persist me
+bjs6047@Jinho:~/codyssey/app$ docker volume inspect mydata
+[
+    {
+        "CreatedAt": "2026-10-30T13:02:03Z",
+        "Driver": "local",
+        "Labels": null,
+        "Mountpoint": "/var/lib/docker/volumes/mydata/_data",
+        "Name": "mydata",
+        "Options": null,
+        "Scope": "local"
+    }
+]
+```
+
+검증 결과: `vol-test`를 삭제해 컨테이너는 사라졌지만 `mydata` 볼륨은 남아 있었고, 새로 만든 `vol-test2`에서 이전에 쓴 `persist me`를 그대로 읽었습니다. 볼륨의 수명은 컨테이너와 별개입니다.
+
+**바인드 마운트와 볼륨의 차이**
+
+| | 바인드 마운트 | 볼륨 |
+|---|---|---|
+| 저장 위치 | 내가 지정한 호스트 경로 | Docker가 관리하는 영역 |
+| 이번 실습에서의 용도 | 호스트 파일 수정의 즉시 반영 확인 | 컨테이너 삭제 후 데이터 유지 확인 |
 
 ## 5. 트러블슈팅
 
